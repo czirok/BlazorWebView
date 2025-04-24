@@ -1,15 +1,16 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFrameworks>net8.0</TargetFrameworks>
-		<ImplicitUsings>enable</ImplicitUsings>
-		<Nullable>enable</Nullable>
+		<TargetFrameworks>$(NugetTargetFrameworks)</TargetFrameworks>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="GirCore.Gtk-4.0" Version="0.5.0" />
-		<PackageReference Include="GirCore.WebKit-6.0" Version="0.5.0" />
-		<PackageReference Include="Microsoft.AspNetCore.Components.WebView" Version="8.0.*" />
+		<PackageReference Include="GirCore.Gtk-4.0" />
+		<PackageReference Include="GirCore.WebKit-6.0" />
+		<PackageReference Include="Microsoft.AspNetCore.Components.Web" />
+		<PackageReference Include="Microsoft.AspNetCore.Components.WebView" />
+		<PackageReference Include="Microsoft.Extensions.Hosting" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Console" />
 	</ItemGroup>
 
 </Project>

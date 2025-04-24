@@ -1,0 +1,11 @@
+<Project>
+
+  <PropertyGroup>
+    <NugetTargetFrameworks>net8.0;net9.0</NugetTargetFrameworks>
+    <TestTargetFramework>net9.0</TestTargetFramework>
+    <LangVersion>preview</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

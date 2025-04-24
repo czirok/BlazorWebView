@@ -1,13 +1,9 @@
-﻿using WebKitGtk;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
 using System.Runtime.Versioning;
 using WebKitGtk.Test.Data;
-using System.Threading.Tasks;
-
-using System.Threading;
-using System;
+using WebKitGtk;
 
 [UnsupportedOSPlatform("OSX")]
 [UnsupportedOSPlatform("Windows")]
@@ -18,15 +14,16 @@ internal class Program : IHostedService
 		var builder = Host.CreateApplicationBuilder(args);
 		//appBuilder.Logging.AddDebug();
 		builder.Logging.AddSimpleConsole(
-			options => {
+			options =>
+			{
 				options.ColorBehavior = Microsoft.Extensions.Logging.Console.LoggerColorBehavior.Disabled;
 				options.IncludeScopes = false;
 				options.SingleLine = true;
 				options.TimestampFormat = "hh:mm:ss ";
-		})
+			})
 		.SetMinimumLevel(LogLevel.Information);
 
-		builder.Services.AddBlazorWebViewOptions(
+		builder.Services.AddBlazorWebView(
 			new BlazorWebViewOptions()
 			{
 				RootComponent = typeof(WebKitGtk.Test.App),
@@ -43,8 +40,6 @@ internal class Program : IHostedService
 
 	public Program(IHostApplicationLifetime lifetime, IServiceProvider serviceProvider)
 	{
-		WebKit.Module.Initialize();
-
 		_serviceProvider = serviceProvider;
 		_app = Adw.Application.New("org.gir.core", Gio.ApplicationFlags.FlagsNone);
 
@@ -67,11 +62,11 @@ internal class Program : IHostedService
 			lifetime.StopApplication();
 		};
 
-		lifetime.ApplicationStarted.Register(() => 
+		lifetime.ApplicationStarted.Register(() =>
 		{
-			Task.Run(() => 
+			Task.Run(() =>
 			{
-				Environment.ExitCode = _app.Run(0, []);
+				Environment.ExitCode = _app.RunWithSynchronizationContext([]);
 			});
 		});
 
@@ -84,13 +79,13 @@ internal class Program : IHostedService
 	readonly IServiceProvider _serviceProvider;
 	readonly Adw.Application _app;
 
-    public Task StartAsync(CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
-    }
+	public Task StartAsync(CancellationToken cancellationToken)
+	{
+		return Task.CompletedTask;
+	}
 
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
-    }
+	public Task StopAsync(CancellationToken cancellationToken)
+	{
+		return Task.CompletedTask;
+	}
 }

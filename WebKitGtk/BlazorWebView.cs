@@ -1,11 +1,10 @@
-using Microsoft.AspNetCore.Components;
+using Gtk;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Web;
 using WebKit;
-using MemoryInputStream = Gio.Internal.MemoryInputStream;
 using Uri = System.Uri;
 
 namespace WebKitGtk;
@@ -22,30 +21,23 @@ public class BlazorWebView : WebView
 
 [UnsupportedOSPlatform("OSX")]
 [UnsupportedOSPlatform("Windows")]
-class WebViewManager : Microsoft.AspNetCore.Components.WebView.WebViewManager
+internal class WebViewManager : Microsoft.AspNetCore.Components.WebView.WebViewManager, IAsyncDisposable
 {
-	// Workaround for protection level access
-	class InputStream : Gio.InputStream
-	{
-		protected internal InputStream(IntPtr ptr, bool ownedRef) : base(ptr, ownedRef)
-		{ }
-	}
-
-	const string Scheme = "app";
-	static readonly Uri BaseUri = new($"{Scheme}://localhost/");
+	private const string Scheme = "app";
+	private static readonly Uri BaseUri = new($"{Scheme}://localhost/");
+	private readonly UserContentManager? _userContentManager;
+	private readonly WebView _webView;
+	private readonly BlazorWebViewOptions options;
 
 	public WebViewManager(WebView webView, IServiceProvider serviceProvider) : base(
 		serviceProvider,
-		Dispatcher.CreateDefault(),
+		new GtkDispatcher(serviceProvider.GetRequiredService<IDispatcher>()),
 		BaseUri,
 		new PhysicalFileProvider(serviceProvider.GetRequiredService<BlazorWebViewOptions>().ContentRoot),
 		new(),
 		serviceProvider.GetRequiredService<BlazorWebViewOptions>().RelativeHostPath)
 	{
-		var options = serviceProvider.GetRequiredService<BlazorWebViewOptions>();
-		_relativeHostPath = options.RelativeHostPath;
-		var rootComponent = options.RootComponent;
-		_logger = serviceProvider.GetService<ILogger<WebViewManager>>();
+		options = serviceProvider.GetRequiredService<BlazorWebViewOptions>();
 
 		_webView = webView;
 
@@ -56,30 +48,39 @@ class WebViewManager : Microsoft.AspNetCore.Components.WebView.WebViewManager
 		{
 			throw new Exception("WebView.WebContext is null");
 		}
-		_webView.WebContext.RegisterUriScheme(Scheme, HandleUriScheme);
+		_webView.OnCreate += NavigationSignalHandler;
+
+		try
+		{
+			_webView.WebContext.RegisterUriScheme(Scheme, HandleUriScheme);
+		}
+		catch (Exception ex)
+		{
+			throw new Exception($"Failed to register URI scheme: {Scheme}", ex);
+		}
 
 		Dispatcher.InvokeAsync(async () =>
 		{
-			await AddRootComponentAsync(rootComponent, "#app", ParameterView.Empty);
+			await AddRootComponentAsync(options.RootComponent, "#app", Microsoft.AspNetCore.Components.ParameterView.Empty);
 		});
 
-		var ucm = webView.GetUserContentManager();
-		ucm.AddScript(UserScript.New(
+		_userContentManager = webView.GetUserContentManager();
+		_userContentManager.AddScript(UserScript.New(
 			source:
 			"""
 				window.__receiveMessageCallbacks = [];
 
 				window.__dispatchMessageCallback = function(message) {
-				    window.__receiveMessageCallbacks.forEach(function(callback) { callback(message); });
+					window.__receiveMessageCallbacks.forEach(function(callback) { callback(message); });
 				};
 
 				window.external = {
-				    sendMessage: function(message) {
-				        window.webkit.messageHandlers.webview.postMessage(message);
-				    },
-				    receiveMessage: function(callback) {
-				        window.__receiveMessageCallbacks.push(callback);
-				    }
+					sendMessage: function(message) {
+						window.webkit.messageHandlers.webview.postMessage(message);
+					},
+					receiveMessage: function(callback) {
+						window.__receiveMessageCallbacks.push(callback);
+					}
 				};
 			""",
 			injectedFrames: UserContentInjectedFrames.AllFrames,
@@ -88,13 +89,11 @@ class WebViewManager : Microsoft.AspNetCore.Components.WebView.WebViewManager
 			null)
 		);
 
-		UserContentManager.ScriptMessageReceivedSignal.Connect(ucm, (_, signalArgs) =>
-		{
-			var result = signalArgs.Value;
-			MessageReceived(BaseUri, result.ToString());
-		}, true, "webview");
+		UserContentManager
+			.ScriptMessageReceivedSignal
+				.Connect(_userContentManager, WebviewInteropMessageReceived, true, "webview");
 
-		if (!ucm.RegisterScriptMessageHandler("webview", null))
+		if (!_userContentManager.RegisterScriptMessageHandler("webview", null))
 		{
 			throw new Exception("Could not register script message handler");
 		}
@@ -102,11 +101,7 @@ class WebViewManager : Microsoft.AspNetCore.Components.WebView.WebViewManager
 		Navigate("/");
 	}
 
-	readonly WebView _webView;
-	readonly string _relativeHostPath;
-	readonly ILogger<WebViewManager>? _logger;
-
-	void HandleUriScheme(URISchemeRequest request)
+	private void HandleUriScheme(URISchemeRequest request)
 	{
 		if (request.GetScheme() != Scheme)
 		{
@@ -116,18 +111,15 @@ class WebViewManager : Microsoft.AspNetCore.Components.WebView.WebViewManager
 		var uri = request.GetUri();
 		if (request.GetPath() == "/")
 		{
-			uri += _relativeHostPath;
+			uri += options.RelativeHostPath;
 		}
-
-		_logger?.LogDebug($"Fetching \"{uri}\"");
 
 		if (TryGetResponseContent(uri, false, out var statusCode, out var statusMessage, out var content, out var headers))
 		{
-			using var ms = new MemoryStream();
-			content.CopyTo(ms);
-			var streamPtr = MemoryInputStream.NewFromData(ref ms.GetBuffer()[0], (uint)ms.Length, _ => { });
-			var inputStream = new InputStream(streamPtr, false);
-			request.Finish(inputStream, ms.Length, headers["Content-Type"]);
+			using var memoryStream = new MemoryStream();
+			content.CopyTo(memoryStream);
+			var inputStream = Gio.MemoryInputStream.NewFromBytes(GLib.Bytes.New(memoryStream.ToArray()));
+			request.Finish(inputStream, memoryStream.Length, headers["Content-Type"]);
 		}
 		else
 		{
@@ -137,14 +129,51 @@ class WebViewManager : Microsoft.AspNetCore.Components.WebView.WebViewManager
 
 	protected override void NavigateCore(Uri absoluteUri)
 	{
-		_logger?.LogDebug($"Navigating to \"{absoluteUri}\"");
 		_webView.LoadUri(absoluteUri.ToString());
 	}
 
 	protected override async void SendMessage(string message)
 	{
 		var script = $"__dispatchMessageCallback(\"{HttpUtility.JavaScriptStringEncode(message)}\")";
-		_logger?.LogDebug($"Dispatching `{script}`");
 		_ = await _webView.EvaluateJavascriptAsync(script);
+	}
+
+	private void WebviewInteropMessageReceived(UserContentManager sender, UserContentManager.ScriptMessageReceivedSignalArgs args)
+	{
+		var result = args.Value;
+		MessageReceived(BaseUri, result.ToString());
+	}
+
+	private Widget NavigationSignalHandler(WebView sender, WebView.CreateSignalArgs args)
+	{
+		var navigationType = WebKit.Internal.NavigationAction.GetNavigationType(args.NavigationAction.Handle);
+		if (navigationType != NavigationType.LinkClicked) return default!;
+
+		var request = WebKit.Internal.NavigationAction.GetRequest(args.NavigationAction.Handle);
+		var nonNullableUtf8StringUnownedHandle = WebKit.Internal.URIRequest.GetUri(request);
+		var uri = nonNullableUtf8StringUnownedHandle.ConvertToString();
+		LaunchUriInExternalBrowser(uri);
+		return default!;
+	}
+
+	private void LaunchUriInExternalBrowser(string webviewUri)
+	{
+		if (Uri.TryCreate(webviewUri, UriKind.Absolute, out var uri))
+		{
+			using var launchBrowser = new Process();
+			launchBrowser.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
+			launchBrowser.StartInfo.UseShellExecute = true;
+			launchBrowser.StartInfo.FileName = uri.ToString();
+			launchBrowser.Start();
+		}
+	}
+
+	protected override async ValueTask DisposeAsyncCore()
+	{
+		await base.DisposeAsyncCore();
+		_webView.OnCreate -= NavigationSignalHandler;
+		if (_userContentManager is null) return;
+		UserContentManager.ScriptMessageReceivedSignal.Disconnect(_userContentManager, WebviewInteropMessageReceived);
+		_userContentManager.Dispose();
 	}
 }

@@ -1,0 +1,25 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageVersion Include="GirCore.Adw-1" Version="0.6.3" />
+    <PackageVersion Include="GirCore.Gtk-4.0" Version="0.6.3" />
+    <PackageVersion Include="GirCore.WebKit-6.0" Version="0.6.3" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.4" />
+    <PackageVersion Include="Microsoft.Extensions.FileProviders.Abstractions" Version="9.0.4" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.4" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="9.0.4" />
+  </ItemGroup>
+
+  <ItemGroup Label="Package versions for .NET 8.0" Condition=" '$(TargetFrameworkIdentifier)' == '.NETCoreApp' And $([MSBuild]::VersionEquals($(TargetFrameworkVersion), '8.0')) ">
+    <PackageVersion Include="Microsoft.AspNetCore.Components.Web" Version="8.0.3" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebView" Version="8.0.3" />
+  </ItemGroup>
+
+  <ItemGroup Label="Package versions for .NET 9.0" Condition=" '$(TargetFrameworkIdentifier)' == '.NETCoreApp' And $([MSBuild]::VersionEquals($(TargetFrameworkVersion), '9.0')) ">
+    <PackageVersion Include="Microsoft.AspNetCore.Components.Web" Version="9.0.4" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebView" Version="9.0.4" />
+  </ItemGroup>
+</Project>
